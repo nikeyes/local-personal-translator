@@ -1,0 +1,239 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.container {
+    width: 100%;
+    max-width: 1200px;
+}
+
+header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    font-size: 1rem;
+    opacity: 0.9;
+}
+
+.translator {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0;
+    overflow: hidden;
+}
+
+.panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+}
+
+.input-panel {
+    border-right: 1px solid #e5e7eb;
+}
+
+.panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.lang-selector {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #374151;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+}
+
+.lang-selector:hover {
+    color: #667eea;
+}
+
+.text-area {
+    flex: 1;
+    padding: 20px;
+    border: none;
+    font-size: 1rem;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+    font-family: inherit;
+}
+
+.text-area::placeholder {
+    color: #9ca3af;
+}
+
+.text-area:focus {
+    background: #fefefe;
+}
+
+.panel-footer {
+    padding: 12px 20px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.char-count {
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+
+.copy-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.copy-button:hover {
+    background: #5568d3;
+    transform: translateY(-1px);
+}
+
+.copy-button:active {
+    transform: translateY(0);
+}
+
+.copy-button:disabled {
+    background: #d1d5db;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.swap-button-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 16px;
+    background: white;
+}
+
+.swap-button {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid #e5e7eb;
+    background: white;
+    color: #667eea;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+}
+
+.swap-button:hover {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+    transform: rotate(180deg);
+}
+
+.swap-button:active {
+    transform: rotate(180deg) scale(0.95);
+}
+
+.status {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 24px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+    z-index: 1000;
+}
+
+.status.visible {
+    opacity: 1;
+}
+
+.status.error {
+    background: rgba(254, 226, 226, 0.95);
+    color: #991b1b;
+    border: 1px solid rgba(252, 165, 165, 0.5);
+}
+
+.status.success {
+    background: rgba(220, 252, 231, 0.95);
+    color: #065f46;
+    border: 1px solid rgba(134, 239, 172, 0.5);
+}
+
+.status.info {
+    background: rgba(224, 231, 255, 0.95);
+    color: #1e40af;
+    border: 1px solid rgba(165, 180, 252, 0.5);
+}
+
+@media (max-width: 768px) {
+    .translator {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+    }
+
+    .input-panel {
+        border-right: none;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .swap-button-container {
+        padding: 12px;
+    }
+
+    .swap-button:hover {
+        transform: rotate(90deg);
+    }
+
+    .swap-button:active {
+        transform: rotate(90deg) scale(0.95);
+    }
+
+    header h1 {
+        font-size: 2rem;
+    }
+}

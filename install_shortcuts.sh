@@ -12,12 +12,25 @@ create_workflow() {
     mkdir -p "$dir"
 
     local script
-    script=$(cat <<SCRIPT
-RESULT=\$(curl -s -X POST 'http://127.0.0.1:${PORT}?src=${src}&tgt=${tgt}' --data-binary @-)
-echo -n "\$RESULT" | pbcopy
-osascript -e 'on run argv' -e 'display dialog (item 1 of argv) with title "${title}" buttons {"OK"} default button "OK"' -e 'end run' -- "\$RESULT"
+    script=$(cat <<'SCRIPT'
+# Absolute paths
+PROJECT_DIR="PROJECT_DIR_PLACEHOLDER"
+
+# Check/start server
+"$PROJECT_DIR/check_server.sh"
+
+# Get selected text and encode as base64 (URL-safe)
+TEXT=$(cat)
+ENCODED=$(python3 -c "import sys, base64; print(base64.urlsafe_b64encode(sys.stdin.read().encode()).decode())" <<< "$TEXT")
+
+# Open browser with encoded text in URL
+open "http://127.0.0.1:8785/?src=SRC_LANG_PLACEHOLDER&tgt=TGT_LANG_PLACEHOLDER&text=$ENCODED"
 SCRIPT
 )
+    # Replace placeholders with actual values
+    script="${script//PROJECT_DIR_PLACEHOLDER/$(pwd)}"
+    script="${script//SRC_LANG_PLACEHOLDER/${src}}"
+    script="${script//TGT_LANG_PLACEHOLDER/${tgt}}"
 
     cat > "$dir/document.wflow" <<'PLIST_HEAD'
 <?xml version="1.0" encoding="UTF-8"?>
