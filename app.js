@@ -1,19 +1,43 @@
-const sourceText = document.getElementById('sourceText');
-const targetText = document.getElementById('targetText');
-const sourceLang = document.getElementById('sourceLang');
-const targetLang = document.getElementById('targetLang');
-const swapBtn = document.getElementById('swapBtn');
-const copyBtn = document.getElementById('copyBtn');
-const charCount = document.getElementById('charCount');
-const status = document.getElementById('status');
+// Validate required DOM elements exist
+function getRequiredElement(id) {
+    const element = document.getElementById(id);
+    if (!element) {
+        throw new Error(`Required element missing: #${id}`);
+    }
+    return element;
+}
+
+let sourceText, targetText, sourceLang, targetLang, swapBtn, copyBtn, charCount, status;
+
+try {
+    sourceText = getRequiredElement('sourceText');
+    targetText = getRequiredElement('targetText');
+    sourceLang = getRequiredElement('sourceLang');
+    targetLang = getRequiredElement('targetLang');
+    swapBtn = getRequiredElement('swapBtn');
+    copyBtn = getRequiredElement('copyBtn');
+    charCount = getRequiredElement('charCount');
+    status = getRequiredElement('status');
+} catch (error) {
+    console.error('Initialization failed:', error);
+    document.body.innerHTML = `
+        <div style="color: red; padding: 20px; font-family: sans-serif;">
+            <h2>Initialization Error</h2>
+            <p>${error.message}</p>
+            <p>Please reload the page or contact support.</p>
+        </div>
+    `;
+    throw error;
+}
 
 let translateTimeout = null;
 let translateStartTime = null;
+let currentRequestId = 0;
 
 // Update character count
 sourceText.addEventListener('input', () => {
     const length = sourceText.value.length;
-    charCount.textContent = `${length} caractere${length !== 1 ? 's' : ''}`;
+    charCount.textContent = `${length} character${length !== 1 ? 's' : ''}`;
 
     // Auto-translate with debounce
     clearTimeout(translateTimeout);
@@ -37,12 +61,15 @@ async function translate() {
     const tgt = targetLang.value;
 
     if (src === tgt) {
-        showStatus('Los idiomas de origen y destino deben ser diferentes', 'error');
+        showStatus('Source and target languages must be different', 'error');
         return;
     }
 
+    // Create unique request ID to prevent race conditions
+    const requestId = ++currentRequestId;
+
     translateStartTime = Date.now();
-    showStatus('Traduciendo...', 'info');
+    showStatus('Translating...', 'info');
     targetText.value = '';
     copyBtn.disabled = true;
 
@@ -55,6 +82,12 @@ async function translate() {
             body: text
         });
 
+        // Ignore response if a newer request was made
+        if (requestId !== currentRequestId) {
+            console.log('Ignoring stale response for request', requestId);
+            return;
+        }
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
@@ -64,13 +97,39 @@ async function translate() {
 
         targetText.value = translation;
         copyBtn.disabled = false;
-        showStatus(`Traducido en ${duration}s`, 'success');
+        showStatus(`Translated in ${duration}s`, 'success');
 
         // Hide success message after 3 seconds
         setTimeout(hideStatus, 3000);
     } catch (error) {
-        showStatus(`Error: ${error.message}. ¿Está el servidor corriendo?`, 'error');
-        console.error('Translation error:', error);
+        // Only show error if this is still the current request
+        if (requestId !== currentRequestId) {
+            return;
+        }
+
+        console.error('Translation error:', {
+            message: error.message,
+            name: error.name,
+            src: src,
+            tgt: tgt,
+            textLength: text.length
+        });
+
+        // Provide specific error messages based on error type
+        let userMessage;
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+            userMessage = 'Cannot connect to server. Is it running on http://127.0.0.1:8785?';
+        } else if (error.message.includes('HTTP 400')) {
+            userMessage = 'Invalid request to server';
+        } else if (error.message.includes('HTTP 500')) {
+            userMessage = 'Internal server error';
+        } else if (error.message.includes('HTTP')) {
+            userMessage = `Server error: ${error.message}`;
+        } else {
+            userMessage = `Error: ${error.message}`;
+        }
+
+        showStatus(userMessage, 'error');
     }
 }
 
@@ -112,13 +171,26 @@ targetLang.addEventListener('change', () => {
 copyBtn.addEventListener('click', async () => {
     try {
         await navigator.clipboard.writeText(targetText.value);
-        const originalText = copyBtn.querySelector('.copy-text').textContent;
-        copyBtn.querySelector('.copy-text').textContent = '¡Copiado!';
+        const copyTextElement = copyBtn.querySelector('.copy-text');
+        const originalText = copyTextElement.textContent;
+        copyTextElement.textContent = 'Copied!';
         setTimeout(() => {
-            copyBtn.querySelector('.copy-text').textContent = originalText;
+            copyTextElement.textContent = originalText;
         }, 2000);
     } catch (error) {
-        showStatus('Error al copiar al portapapeles', 'error');
+        console.error('Clipboard copy failed:', {
+            error: error.message,
+            name: error.name
+        });
+
+        let message = 'Error copying to clipboard';
+        if (error.name === 'NotAllowedError') {
+            message += ': please allow clipboard access';
+        } else if (error.name === 'SecurityError') {
+            message += ': requires HTTPS';
+        }
+
+        showStatus(message, 'error');
     }
 });
 
@@ -154,7 +226,7 @@ if (urlParams.has('text')) {
 
         // Update char count
         const length = text.length;
-        charCount.textContent = `${length} caractere${length !== 1 ? 's' : ''}`;
+        charCount.textContent = `${length} character${length !== 1 ? 's' : ''}`;
 
         // Clear URL params (clean URL bar)
         window.history.replaceState({}, document.title, '/');
@@ -162,6 +234,11 @@ if (urlParams.has('text')) {
         // Trigger translation
         translate();
     } catch (e) {
-        showStatus('Error al decodificar el texto de la URL', 'error');
+        console.error('URL decoding failed:', {
+            error: e.message,
+            stack: e.stack,
+            encodedText: encodedText ? encodedText.substring(0, 50) + '...' : 'undefined'
+        });
+        showStatus(`Error decoding URL text: ${e.message}`, 'error');
     }
 }

@@ -5,6 +5,9 @@
 SERVICES_DIR="$HOME/Library/Services"
 PORT=8785
 
+# Get the directory where this script is located (not where it's run from)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 create_workflow() {
     local name="$1" src="$2" tgt="$3" title="$4"
     local dir="$SERVICES_DIR/$name.workflow/Contents"
@@ -21,14 +24,15 @@ PROJECT_DIR="PROJECT_DIR_PLACEHOLDER"
 
 # Get selected text and encode as base64 (URL-safe)
 TEXT=$(cat)
-ENCODED=$(python3 -c "import sys, base64; print(base64.urlsafe_b64encode(sys.stdin.read().encode()).decode())" <<< "$TEXT")
+# Use printf to avoid adding newlines, and sys.stdin.buffer for binary safety
+ENCODED=$(printf '%s' "$TEXT" | python3 -c "import sys, base64; print(base64.urlsafe_b64encode(sys.stdin.buffer.read()).decode(), end='')")
 
 # Open browser with encoded text in URL
 open "http://127.0.0.1:8785/?src=SRC_LANG_PLACEHOLDER&tgt=TGT_LANG_PLACEHOLDER&text=$ENCODED"
 SCRIPT
 )
     # Replace placeholders with actual values
-    script="${script//PROJECT_DIR_PLACEHOLDER/$(pwd)}"
+    script="${script//PROJECT_DIR_PLACEHOLDER/${SCRIPT_DIR}}"
     script="${script//SRC_LANG_PLACEHOLDER/${src}}"
     script="${script//TGT_LANG_PLACEHOLDER/${tgt}}"
 

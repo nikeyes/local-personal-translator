@@ -31,15 +31,56 @@ def build_prompt(tokenizer, src: str, tgt: str, text: str) -> str:
 
 
 def translate(model, tokenizer, src: str, tgt: str, text: str) -> str:
-    prompt = build_prompt(tokenizer, src, tgt, text)
-    return generate(model, tokenizer, prompt=prompt, max_tokens=512, sampler=sampler)
+    # Validate inputs
+    supported_langs = {'en', 'es'}
+    if src not in supported_langs or tgt not in supported_langs:
+        raise ValueError(f"Unsupported language pair: {src} -> {tgt}. Supported: {supported_langs}")
+
+    if len(text) > 5000:
+        raise ValueError(f"Text too long: {len(text)} characters (max 5000)")
+
+    if not text.strip():
+        raise ValueError("Text cannot be empty")
+
+    try:
+        prompt = build_prompt(tokenizer, src, tgt, text)
+        result = generate(model, tokenizer, prompt=prompt, max_tokens=512, sampler=sampler)
+        return result
+    except MemoryError:
+        print(f"ERROR: Out of memory translating {len(text)} chars", file=sys.stderr)
+        raise ValueError("Text too long, please try shorter text")
+    except Exception as e:
+        print(f"ERROR: Translation failed: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"  src={src}, tgt={tgt}, text_len={len(text)}", file=sys.stderr)
+        raise
 
 
 def load_model():
     print("Loading model...", file=sys.stderr)
-    model, tokenizer = load(MODEL)
-    end_of_turn_id = tokenizer.encode("<end_of_turn>", add_special_tokens=False)[-1]
-    tokenizer._eos_token_ids.add(end_of_turn_id)  # MLX community model misses this stop token
+
+    try:
+        model, tokenizer = load(MODEL)
+    except FileNotFoundError as e:
+        print(f"ERROR: Model not found at {MODEL}", file=sys.stderr)
+        print("First run downloads ~12.5GB. Check network connection.", file=sys.stderr)
+        print(f"Details: {e}", file=sys.stderr)
+        sys.exit(1)
+    except MemoryError:
+        print("ERROR: Insufficient memory to load model", file=sys.stderr)
+        print("This model requires approximately 12GB RAM", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Failed to load model: {type(e).__name__}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        end_of_turn_id = tokenizer.encode("<end_of_turn>", add_special_tokens=False)[-1]
+        tokenizer._eos_token_ids.add(end_of_turn_id)  # MLX community model misses this stop token
+    except (IndexError, AttributeError) as e:
+        print(f"ERROR: Failed to configure tokenizer: {e}", file=sys.stderr)
+        print("The model may be incompatible or corrupted", file=sys.stderr)
+        sys.exit(1)
+
     print("Model ready.", file=sys.stderr)
     return model, tokenizer
 
@@ -74,32 +115,87 @@ def serve(model, tokenizer):
                 self.end_headers()
                 self.wfile.write(content)
             except FileNotFoundError:
+                print(f"ERROR: File not found: {file_path}", file=sys.stderr)
+                print(f"  Request path: {path}", file=sys.stderr)
                 self.send_response(404)
                 self.end_headers()
 
         def do_POST(self):
-            parsed = urlparse(self.path)
-            params = parse_qs(parsed.query)
+            try:
+                parsed = urlparse(self.path)
+                params = parse_qs(parsed.query)
 
-            # Translation API
-            if "src" not in params or "tgt" not in params:
-                self.send_response(400)
+                # Translation API
+                if "src" not in params or "tgt" not in params:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(b"Missing src/tgt query params. Use: POST /?src=es&tgt=en")
+                    return
+
+                src = params["src"][0]
+                tgt = params["tgt"][0]
+
+                # Read and decode request body with error handling
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    text = self.rfile.read(content_length).decode('utf-8')
+                except (ValueError, UnicodeDecodeError) as e:
+                    print(f"ERROR: Invalid request body: {e}", file=sys.stderr)
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(f"Invalid request body: {e}".encode())
+                    return
+
+                print(f"[{src}->{tgt}] {text[:100]}{'...' if len(text) > 100 else ''}", file=sys.stderr)
+
+                # Translate with error handling
+                try:
+                    result = translate(model, tokenizer, src, tgt, text)
+                except ValueError as e:
+                    # Expected validation errors
+                    print(f"ERROR: Validation failed: {e}", file=sys.stderr)
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(str(e).encode())
+                    return
+                except Exception as e:
+                    # Unexpected errors
+                    print(f"ERROR: Translation failed unexpectedly: {type(e).__name__}: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+                    self.send_response(500)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(b"Internal server error during translation")
+                    return
+
+                print(f"       -> {result[:100]}{'...' if len(result) > 100 else ''}", file=sys.stderr)
+                self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
-                self.wfile.write(b"Missing src/tgt query params. Use: POST /?src=es&tgt=en")
-                return
-            src = params["src"][0]
-            tgt = params["tgt"][0]
-            text = self.rfile.read(int(self.headers["Content-Length"])).decode()
-            print(f"[{src}->{tgt}] {text}", file=sys.stderr)
-            result = translate(model, tokenizer, src, tgt, text)
-            print(f"       -> {result}", file=sys.stderr)
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(result.encode())
+                self.wfile.write(result.encode())
+
+            except Exception as e:
+                # Catch-all for any unhandled errors
+                print(f"ERROR: Unhandled exception in do_POST: {type(e).__name__}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                try:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(b"Internal server error")
+                except:
+                    pass  # Already in error state, can't send response
 
         def do_OPTIONS(self):
             # Handle CORS preflight

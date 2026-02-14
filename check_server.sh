@@ -20,6 +20,6 @@ if ! curl -s --max-time 1 "http://127.0.0.1:${PORT}" > /dev/null 2>&1; then
     done
 
     # Server failed to start
-    osascript -e 'display dialog "No se pudo iniciar el servidor de traducción. Revisa /tmp/translator-server.log" with title "Error" buttons {"OK"} default button "OK"'
+    osascript -e 'display dialog "Could not start translation server. Check /tmp/translator-server.log" with title "Error" buttons {"OK"} default button "OK"'
     exit 1
 fi
