@@ -41,6 +41,7 @@ function logError(errorId, message, context = {}) {
 
 function validateTranslationRequest(text, src, tgt) {
     const errors = [];
+    // IMPORTANT: These values must match server-side validation in main.py
     const MAX_TEXT_LENGTH = 5000;
     const VALID_LANGS = ['en', 'es'];
 
@@ -94,6 +95,7 @@ try {
 let translateTimeout = null;
 let translateStartTime = null;
 let currentRequestId = 0;
+let statusTimeout = null;
 
 // Update character count
 sourceText.addEventListener('input', () => {
@@ -161,7 +163,7 @@ async function translate() {
         showStatus(`Translated in ${duration}s`, 'success');
 
         // Hide success message after delay
-        setTimeout(hideStatus, SUCCESS_MESSAGE_DURATION_MS);
+        statusTimeout = setTimeout(hideStatus, SUCCESS_MESSAGE_DURATION_MS);
     } catch (error) {
         // Only show error if this is still the current request
         if (requestId !== currentRequestId) {
@@ -265,6 +267,11 @@ copyBtn.addEventListener('click', async () => {
 
 // Status messages
 function showStatus(message, type = 'info') {
+    // Clear any pending hide operation to prevent race conditions
+    if (statusTimeout) {
+        clearTimeout(statusTimeout);
+        statusTimeout = null;
+    }
     status.textContent = message;
     status.className = `status visible ${type}`;
 }

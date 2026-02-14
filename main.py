@@ -38,13 +38,16 @@ def build_prompt(tokenizer, src: str, tgt: str, text: str) -> str:
 
 
 def translate(model, tokenizer, src: str, tgt: str, text: str) -> str:
-    # Validate inputs
-    supported_langs = {'en', 'es'}
-    if src not in supported_langs or tgt not in supported_langs:
-        raise ValueError(f"Unsupported language pair: {src} -> {tgt}. Supported: {supported_langs}")
+    # IMPORTANT: These values must match client-side validation in app.js
+    MAX_TEXT_LENGTH = 5000
+    SUPPORTED_LANGS = {'en', 'es'}
 
-    if len(text) > 5000:
-        raise ValueError(f"Text too long: {len(text)} characters (max 5000)")
+    # Validate inputs
+    if src not in SUPPORTED_LANGS or tgt not in SUPPORTED_LANGS:
+        raise ValueError(f"Unsupported language pair: {src} -> {tgt}. Supported: {SUPPORTED_LANGS}")
+
+    if len(text) > MAX_TEXT_LENGTH:
+        raise ValueError(f"Text too long: {len(text)} characters (max {MAX_TEXT_LENGTH})")
 
     if not text.strip():
         raise ValueError("Text cannot be empty")
@@ -204,7 +207,7 @@ def serve(model, tokenizer):
                     self.send_cors_headers()
                     self.end_headers()
                     self.wfile.write(b"Internal server error")
-                except:
+                except Exception:
                     pass  # Already in error state, can't send response
 
         def do_OPTIONS(self):
