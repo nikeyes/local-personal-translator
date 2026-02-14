@@ -22,7 +22,7 @@ body {
 header {
     text-align: center;
     color: white;
-    margin-bottom: 30px;
+    margin-bottom: 20px;
 }
 
 header h1 {
@@ -74,6 +74,35 @@ header h1 {
 .model-select option {
     background: #667eea;
     color: white;
+}
+
+.tab-bar {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.tab {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.tab.active {
+    background: white;
+    color: #667eea;
+    border-color: white;
 }
 
 .translator {
@@ -210,6 +239,14 @@ header h1 {
 
 .swap-button:active {
     transform: rotate(180deg) scale(0.95);
+}
+
+.swap-button-container.hidden {
+    display: none;
+}
+
+.panel-header.hidden {
+    display: none;
 }
 
 .status {

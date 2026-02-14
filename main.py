@@ -64,6 +64,8 @@ def translate(model, tokenizer, src: str, tgt: str, text: str) -> tuple[str, flo
     if not text.strip():
         raise ValueError("Text cannot be empty")
 
+    # Allow src == tgt for text improvement mode
+
     try:
         prompt = build_prompt(tokenizer, src, tgt, text)
 

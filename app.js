@@ -3,6 +3,8 @@ const TRANSLATE_DEBOUNCE_MS = 500;
 const SUCCESS_MESSAGE_DURATION_MS = 3000;
 const COPY_CONFIRMATION_DURATION_MS = 2000;
 const API_BASE_URL = 'http://127.0.0.1:8785';
+const MODE_TRANSLATE = 'translate';
+const MODE_IMPROVE = 'improve';
 
 // Error IDs for structured logging
 const ERROR_IDS = {
@@ -39,7 +41,7 @@ function logError(errorId, message, context = {}) {
     console.error(`[${errorId}]`, message, errorData);
 }
 
-function validateTranslationRequest(text, src, tgt) {
+function validateTranslationRequest(text, src, tgt, mode) {
     const errors = [];
     // IMPORTANT: These values must match server-side validation in main.py
     const MAX_TEXT_LENGTH = 5000;
@@ -61,14 +63,15 @@ function validateTranslationRequest(text, src, tgt) {
         errors.push(`Invalid target language: ${tgt}`);
     }
 
-    if (src === tgt) {
+    if (mode === MODE_TRANSLATE && src === tgt) {
         errors.push('Source and target languages must be different');
     }
 
     return errors;
 }
 
-let sourceText, targetText, sourceLang, targetLang, swapBtn, copyBtn, charCount, status, modelSelect;
+let sourceText, targetText, sourceLang, targetLang, swapBtn, swapBtnContainer, copyBtn, charCount, status, modelSelect;
+let translateTab, improveTab, outputHeader;
 
 try {
     sourceText = getRequiredElement('sourceText');
@@ -76,10 +79,14 @@ try {
     sourceLang = getRequiredElement('sourceLang');
     targetLang = getRequiredElement('targetLang');
     swapBtn = getRequiredElement('swapBtn');
+    swapBtnContainer = getRequiredElement('swapBtnContainer');
     copyBtn = getRequiredElement('copyBtn');
     charCount = getRequiredElement('charCount');
     status = getRequiredElement('status');
     modelSelect = getRequiredElement('modelSelect');
+    translateTab = getRequiredElement('translateTab');
+    improveTab = getRequiredElement('improveTab');
+    outputHeader = getRequiredElement('outputHeader');
 } catch (error) {
     logError(ERROR_IDS.INIT_DOM_ERROR, 'Initialization failed', { error: error.message });
     document.body.innerHTML = `
@@ -97,6 +104,7 @@ let translateTimeout = null;
 let translateStartTime = null;
 let currentRequestId = 0;
 let statusTimeout = null;
+let currentMode = MODE_TRANSLATE;
 
 // Update character count
 sourceText.addEventListener('input', () => {
@@ -115,11 +123,16 @@ sourceText.addEventListener('input', () => {
 // Translate function
 async function translate() {
     const text = sourceText.value.trim();
-    const src = sourceLang.value;
-    const tgt = targetLang.value;
+    let src = sourceLang.value;
+    let tgt = targetLang.value;
+
+    // In improve mode, set src and tgt to the same language
+    if (currentMode === MODE_IMPROVE) {
+        tgt = src;
+    }
 
     // Validate input before making request
-    const validationErrors = validateTranslationRequest(text, src, tgt);
+    const validationErrors = validateTranslationRequest(text, src, tgt, currentMode);
     if (validationErrors.length > 0) {
         if (!text) {
             hideStatus();
@@ -133,7 +146,8 @@ async function translate() {
     const requestId = ++currentRequestId;
 
     translateStartTime = Date.now();
-    showStatus('Translating...', 'info');
+    const actionVerb = currentMode === MODE_IMPROVE ? 'Improving' : 'Translating';
+    showStatus(`${actionVerb}...`, 'info');
     targetText.value = '';
     copyBtn.disabled = true;
 
@@ -160,14 +174,15 @@ async function translate() {
 
         // Get server-side timing if available
         const serverTime = response.headers.get('X-Translation-Time');
+        const actionPastTense = currentMode === MODE_IMPROVE ? 'Improved' : 'Translated';
         let timeMessage;
         if (serverTime) {
             const serverSeconds = parseFloat(serverTime);
             const totalSeconds = ((Date.now() - translateStartTime) / 1000).toFixed(1);
-            timeMessage = `Translated in ${serverSeconds.toFixed(2)}s (total: ${totalSeconds}s)`;
+            timeMessage = `${actionPastTense} in ${serverSeconds.toFixed(2)}s (total: ${totalSeconds}s)`;
         } else {
             const duration = ((Date.now() - translateStartTime) / 1000).toFixed(1);
-            timeMessage = `Translated in ${duration}s`;
+            timeMessage = `${actionPastTense} in ${duration}s`;
         }
 
         targetText.value = translation;
@@ -201,12 +216,14 @@ async function translate() {
             userMessage = `Error: ${error.message}`;
         }
 
-        logError(errorId, 'Translation failed', {
+        const actionName = currentMode === MODE_IMPROVE ? 'Improvement' : 'Translation';
+        logError(errorId, `${actionName} failed`, {
             error: error.message,
             name: error.name,
             src: src,
             tgt: tgt,
-            textLength: text.length
+            textLength: text.length,
+            mode: currentMode
         });
 
         showStatus(`${userMessage} (${errorId})`, 'error');
@@ -350,9 +367,45 @@ async function loadCurrentModel() {
     }
 }
 
+// Mode switching
+function setMode(mode) {
+    currentMode = mode;
+
+    // Update tab active state
+    if (mode === MODE_TRANSLATE) {
+        translateTab.classList.add('active');
+        improveTab.classList.remove('active');
+        swapBtnContainer.classList.remove('hidden');
+        targetLang.parentElement.classList.remove('hidden');
+        sourceText.placeholder = 'Type or paste text here...';
+        targetText.placeholder = 'Translation will appear here...';
+    } else {
+        improveTab.classList.add('active');
+        translateTab.classList.remove('active');
+        swapBtnContainer.classList.add('hidden');
+        targetLang.parentElement.classList.add('hidden');
+        sourceText.placeholder = 'Type or paste text to improve...';
+        targetText.placeholder = 'Improved text will appear here...';
+    }
+
+    // Clear output, preserve input
+    targetText.value = '';
+    copyBtn.disabled = true;
+    hideStatus();
+
+    // Re-translate if there's text
+    if (sourceText.value.trim()) {
+        translate();
+    }
+}
+
+translateTab.addEventListener('click', () => setMode(MODE_TRANSLATE));
+improveTab.addEventListener('click', () => setMode(MODE_IMPROVE));
+
 // Initialize
 copyBtn.disabled = true;
 loadCurrentModel();
+setMode(MODE_TRANSLATE);
 
 // Check URL parameters (from shortcuts - text is base64 encoded)
 const urlParams = new URLSearchParams(window.location.search);

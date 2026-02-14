@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <h1>Personal Translator</h1>
-            <p class="subtitle">Local ES ↔ EN translation</p>
+            <p class="subtitle">Local ES ↔ EN translation & text improvement</p>
             <div class="model-selector">
                 <label for="modelSelect">Model:</label>
                 <select id="modelSelect" class="model-select">
@@ -19,6 +19,11 @@
                 </select>
             </div>
         </header>
+
+        <div class="tab-bar">
+            <button id="translateTab" class="tab active">Translate</button>
+            <button id="improveTab" class="tab">Improve</button>
+        </div>
 
         <div class="translator">
             <div class="panel input-panel">
@@ -39,7 +44,7 @@
                 </div>
             </div>
 
-            <div class="swap-button-container">
+            <div id="swapBtnContainer" class="swap-button-container">
                 <button id="swapBtn" class="swap-button" title="Intercambiar idiomas">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M7 16V4M7 4L3 8M7 4L11 8M17 8V20M17 20L21 16M17 20L13 16"/>
@@ -48,7 +53,7 @@
             </div>
 
             <div class="panel output-panel">
-                <div class="panel-header">
+                <div class="panel-header" id="outputHeader">
                     <select id="targetLang" class="lang-selector">
                         <option value="en">English</option>
                         <option value="es">Español</option>
