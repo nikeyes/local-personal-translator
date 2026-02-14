@@ -4,13 +4,67 @@ const SUCCESS_MESSAGE_DURATION_MS = 3000;
 const COPY_CONFIRMATION_DURATION_MS = 2000;
 const API_BASE_URL = 'http://127.0.0.1:8785';
 
-// Validate required DOM elements exist
+// Error IDs for structured logging
+const ERROR_IDS = {
+    INIT_DOM_ERROR: 'INIT_DOM_001',
+    TRANSLATION_NETWORK_ERROR: 'TRANS_NET_001',
+    TRANSLATION_SERVER_ERROR: 'TRANS_SRV_002',
+    TRANSLATION_VALIDATION_ERROR: 'TRANS_VAL_003',
+    CLIPBOARD_ERROR: 'CLIP_ERR_001',
+    URL_DECODE_ERROR: 'URL_DEC_001'
+};
+
+// Helper functions
 function getRequiredElement(id) {
     const element = document.getElementById(id);
     if (!element) {
         throw new Error(`Required element missing: #${id}`);
     }
     return element;
+}
+
+function formatCharacterCount(length) {
+    const plural = length !== 1 ? 's' : '';
+    return `${length} character${plural}`;
+}
+
+function logError(errorId, message, context = {}) {
+    const errorData = {
+        id: errorId,
+        message: message,
+        context: context,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent
+    };
+    console.error(`[${errorId}]`, message, errorData);
+}
+
+function validateTranslationRequest(text, src, tgt) {
+    const errors = [];
+    const MAX_TEXT_LENGTH = 5000;
+    const VALID_LANGS = ['en', 'es'];
+
+    if (!text || text.trim().length === 0) {
+        errors.push('Text cannot be empty');
+    }
+
+    if (text.length > MAX_TEXT_LENGTH) {
+        errors.push(`Text too long (max ${MAX_TEXT_LENGTH} characters)`);
+    }
+
+    if (!VALID_LANGS.includes(src)) {
+        errors.push(`Invalid source language: ${src}`);
+    }
+
+    if (!VALID_LANGS.includes(tgt)) {
+        errors.push(`Invalid target language: ${tgt}`);
+    }
+
+    if (src === tgt) {
+        errors.push('Source and target languages must be different');
+    }
+
+    return errors;
 }
 
 let sourceText, targetText, sourceLang, targetLang, swapBtn, copyBtn, charCount, status;
@@ -25,12 +79,13 @@ try {
     charCount = getRequiredElement('charCount');
     status = getRequiredElement('status');
 } catch (error) {
-    console.error('Initialization failed:', error);
+    logError(ERROR_IDS.INIT_DOM_ERROR, 'Initialization failed', { error: error.message });
     document.body.innerHTML = `
         <div style="color: red; padding: 20px; font-family: sans-serif;">
             <h2>Initialization Error</h2>
             <p>${error.message}</p>
             <p>Please reload the page or contact support.</p>
+            <p style="color: #666; font-size: 0.9em;">Error ID: ${ERROR_IDS.INIT_DOM_ERROR}</p>
         </div>
     `;
     throw error;
@@ -42,8 +97,7 @@ let currentRequestId = 0;
 
 // Update character count
 sourceText.addEventListener('input', () => {
-    const length = sourceText.value.length;
-    charCount.textContent = `${length} character${length !== 1 ? 's' : ''}`;
+    charCount.textContent = formatCharacterCount(sourceText.value.length);
 
     // Auto-translate with debounce
     clearTimeout(translateTimeout);
@@ -58,16 +112,17 @@ sourceText.addEventListener('input', () => {
 // Translate function
 async function translate() {
     const text = sourceText.value.trim();
-    if (!text) {
-        hideStatus();
-        return;
-    }
-
     const src = sourceLang.value;
     const tgt = targetLang.value;
 
-    if (src === tgt) {
-        showStatus('Source and target languages must be different', 'error');
+    // Validate input before making request
+    const validationErrors = validateTranslationRequest(text, src, tgt);
+    if (validationErrors.length > 0) {
+        if (!text) {
+            hideStatus();
+            return;
+        }
+        showStatus(validationErrors[0], 'error');
         return;
     }
 
@@ -113,29 +168,34 @@ async function translate() {
             return;
         }
 
-        console.error('Translation error:', {
-            message: error.message,
+        // Determine error type and ID
+        let errorId, userMessage;
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+            errorId = ERROR_IDS.TRANSLATION_NETWORK_ERROR;
+            userMessage = `Cannot connect to server. Is it running on ${API_BASE_URL}?`;
+        } else if (error.message.includes('HTTP 400')) {
+            errorId = ERROR_IDS.TRANSLATION_VALIDATION_ERROR;
+            userMessage = 'Invalid request to server';
+        } else if (error.message.includes('HTTP 500')) {
+            errorId = ERROR_IDS.TRANSLATION_SERVER_ERROR;
+            userMessage = 'Internal server error';
+        } else if (error.message.includes('HTTP')) {
+            errorId = ERROR_IDS.TRANSLATION_SERVER_ERROR;
+            userMessage = `Server error: ${error.message}`;
+        } else {
+            errorId = ERROR_IDS.TRANSLATION_SERVER_ERROR;
+            userMessage = `Error: ${error.message}`;
+        }
+
+        logError(errorId, 'Translation failed', {
+            error: error.message,
             name: error.name,
             src: src,
             tgt: tgt,
             textLength: text.length
         });
 
-        // Provide specific error messages based on error type
-        let userMessage;
-        if (error instanceof TypeError && error.message.includes('fetch')) {
-            userMessage = `Cannot connect to server. Is it running on ${API_BASE_URL}?`;
-        } else if (error.message.includes('HTTP 400')) {
-            userMessage = 'Invalid request to server';
-        } else if (error.message.includes('HTTP 500')) {
-            userMessage = 'Internal server error';
-        } else if (error.message.includes('HTTP')) {
-            userMessage = `Server error: ${error.message}`;
-        } else {
-            userMessage = `Error: ${error.message}`;
-        }
-
-        showStatus(userMessage, 'error');
+        showStatus(`${userMessage} (${errorId})`, 'error');
     }
 }
 
@@ -187,7 +247,7 @@ copyBtn.addEventListener('click', async () => {
             copyTextElement.textContent = originalText;
         }, COPY_CONFIRMATION_DURATION_MS);
     } catch (error) {
-        console.error('Clipboard copy failed:', {
+        logError(ERROR_IDS.CLIPBOARD_ERROR, 'Clipboard copy failed', {
             error: error.message,
             name: error.name
         });
@@ -199,7 +259,7 @@ copyBtn.addEventListener('click', async () => {
             message += ': requires HTTPS';
         }
 
-        showStatus(message, 'error');
+        showStatus(`${message} (${ERROR_IDS.CLIPBOARD_ERROR})`, 'error');
     }
 });
 
@@ -234,8 +294,7 @@ if (urlParams.has('text')) {
         sourceText.value = text;
 
         // Update char count
-        const length = text.length;
-        charCount.textContent = `${length} character${length !== 1 ? 's' : ''}`;
+        charCount.textContent = formatCharacterCount(text.length);
 
         // Clear URL params (clean URL bar)
         window.history.replaceState({}, document.title, '/');
@@ -243,11 +302,11 @@ if (urlParams.has('text')) {
         // Trigger translation
         translate();
     } catch (e) {
-        console.error('URL decoding failed:', {
+        logError(ERROR_IDS.URL_DECODE_ERROR, 'URL decoding failed', {
             error: e.message,
             stack: e.stack,
             encodedText: encodedText ? encodedText.substring(0, 50) + '...' : 'undefined'
         });
-        showStatus(`Error decoding URL text: ${e.message}`, 'error');
+        showStatus(`Error decoding URL text: ${e.message} (${ERROR_IDS.URL_DECODE_ERROR})`, 'error');
     }
 }

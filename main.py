@@ -10,6 +10,13 @@ MODEL = "mlx-community/translategemma-12b-it-8bit"
 PORT = 8785
 STATIC_DIR = Path(__file__).parent
 
+# Content-Type mapping for static files
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+}
+
 sampler = make_sampler(temp=0.0)
 
 
@@ -110,12 +117,11 @@ def serve(model, tokenizer):
             try:
                 content = file_path.read_bytes()
                 self.send_response(200)
-                if file_path.suffix == ".html":
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                elif file_path.suffix == ".css":
-                    self.send_header("Content-Type", "text/css; charset=utf-8")
-                elif file_path.suffix == ".js":
-                    self.send_header("Content-Type", "application/javascript; charset=utf-8")
+
+                # Set Content-Type based on file extension
+                content_type = CONTENT_TYPES.get(file_path.suffix, "application/octet-stream")
+                self.send_header("Content-Type", content_type)
+
                 self.end_headers()
                 self.wfile.write(content)
             except FileNotFoundError:
