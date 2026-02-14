@@ -87,6 +87,10 @@ def load_model():
 
 def serve(model, tokenizer):
     class Handler(BaseHTTPRequestHandler):
+        def send_cors_headers(self):
+            """Add CORS headers to allow cross-origin requests"""
+            self.send_header("Access-Control-Allow-Origin", "*")
+
         def do_GET(self):
             # Serve static files
             parsed = urlparse(self.path)
@@ -129,7 +133,7 @@ def serve(model, tokenizer):
                 if "src" not in params or "tgt" not in params:
                     self.send_response(400)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_cors_headers()
                     self.end_headers()
                     self.wfile.write(b"Missing src/tgt query params. Use: POST /?src=es&tgt=en")
                     return
@@ -145,7 +149,7 @@ def serve(model, tokenizer):
                     print(f"ERROR: Invalid request body: {e}", file=sys.stderr)
                     self.send_response(400)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_cors_headers()
                     self.end_headers()
                     self.wfile.write(f"Invalid request body: {e}".encode())
                     return
@@ -160,7 +164,7 @@ def serve(model, tokenizer):
                     print(f"ERROR: Validation failed: {e}", file=sys.stderr)
                     self.send_response(400)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_cors_headers()
                     self.end_headers()
                     self.wfile.write(str(e).encode())
                     return
@@ -171,7 +175,7 @@ def serve(model, tokenizer):
                     traceback.print_exc(file=sys.stderr)
                     self.send_response(500)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_cors_headers()
                     self.end_headers()
                     self.wfile.write(b"Internal server error during translation")
                     return
@@ -191,7 +195,7 @@ def serve(model, tokenizer):
                 try:
                     self.send_response(500)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_cors_headers()
                     self.end_headers()
                     self.wfile.write(b"Internal server error")
                 except:
@@ -200,7 +204,7 @@ def serve(model, tokenizer):
         def do_OPTIONS(self):
             # Handle CORS preflight
             self.send_response(200)
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_cors_headers()
             self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.end_headers()

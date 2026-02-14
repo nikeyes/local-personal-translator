@@ -1,3 +1,9 @@
+// Constants
+const TRANSLATE_DEBOUNCE_MS = 500;
+const SUCCESS_MESSAGE_DURATION_MS = 3000;
+const COPY_CONFIRMATION_DURATION_MS = 2000;
+const API_BASE_URL = 'http://127.0.0.1:8785';
+
 // Validate required DOM elements exist
 function getRequiredElement(id) {
     const element = document.getElementById(id);
@@ -42,7 +48,7 @@ sourceText.addEventListener('input', () => {
     // Auto-translate with debounce
     clearTimeout(translateTimeout);
     if (sourceText.value.trim()) {
-        translateTimeout = setTimeout(translate, 500);
+        translateTimeout = setTimeout(translate, TRANSLATE_DEBOUNCE_MS);
     } else {
         targetText.value = '';
         copyBtn.disabled = true;
@@ -74,7 +80,7 @@ async function translate() {
     copyBtn.disabled = true;
 
     try {
-        const response = await fetch(`http://127.0.0.1:8785?src=${src}&tgt=${tgt}`, {
+        const response = await fetch(`${API_BASE_URL}?src=${src}&tgt=${tgt}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'text/plain; charset=utf-8'
@@ -99,8 +105,8 @@ async function translate() {
         copyBtn.disabled = false;
         showStatus(`Translated in ${duration}s`, 'success');
 
-        // Hide success message after 3 seconds
-        setTimeout(hideStatus, 3000);
+        // Hide success message after delay
+        setTimeout(hideStatus, SUCCESS_MESSAGE_DURATION_MS);
     } catch (error) {
         // Only show error if this is still the current request
         if (requestId !== currentRequestId) {
@@ -118,7 +124,7 @@ async function translate() {
         // Provide specific error messages based on error type
         let userMessage;
         if (error instanceof TypeError && error.message.includes('fetch')) {
-            userMessage = 'Cannot connect to server. Is it running on http://127.0.0.1:8785?';
+            userMessage = `Cannot connect to server. Is it running on ${API_BASE_URL}?`;
         } else if (error.message.includes('HTTP 400')) {
             userMessage = 'Invalid request to server';
         } else if (error.message.includes('HTTP 500')) {
@@ -148,24 +154,27 @@ swapBtn.addEventListener('click', () => {
     }
 });
 
-// Language selector changes
-sourceLang.addEventListener('change', () => {
-    if (targetLang.value === sourceLang.value) {
-        targetLang.value = sourceLang.value === 'es' ? 'en' : 'es';
-    }
-    if (sourceText.value.trim()) {
-        translate();
-    }
-});
+// Handle language selector changes (prevent same source/target)
+function handleLanguageChange(changedSelector) {
+    if (sourceLang.value === targetLang.value) {
+        // Swap the other selector to opposite language
+        const currentValue = sourceLang.value;
+        const oppositeValue = currentValue === 'es' ? 'en' : 'es';
 
-targetLang.addEventListener('change', () => {
-    if (targetLang.value === sourceLang.value) {
-        sourceLang.value = targetLang.value === 'es' ? 'en' : 'es';
+        if (changedSelector === 'source') {
+            targetLang.value = oppositeValue;
+        } else {
+            sourceLang.value = oppositeValue;
+        }
     }
+
     if (sourceText.value.trim()) {
         translate();
     }
-});
+}
+
+sourceLang.addEventListener('change', () => handleLanguageChange('source'));
+targetLang.addEventListener('change', () => handleLanguageChange('target'));
 
 // Copy to clipboard
 copyBtn.addEventListener('click', async () => {
@@ -176,7 +185,7 @@ copyBtn.addEventListener('click', async () => {
         copyTextElement.textContent = 'Copied!';
         setTimeout(() => {
             copyTextElement.textContent = originalText;
-        }, 2000);
+        }, COPY_CONFIRMATION_DURATION_MS);
     } catch (error) {
         console.error('Clipboard copy failed:', {
             error: error.message,
