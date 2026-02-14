@@ -1,4 +1,5 @@
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -6,7 +7,10 @@ from urllib.parse import parse_qs, urlparse
 from mlx_lm import load, generate
 from mlx_lm.sample_utils import make_sampler
 
-MODEL = "mlx-community/translategemma-12b-it-8bit"
+MODELS = {
+    "8bit": "mlx-community/translategemma-12b-it-8bit",
+    "4bit": "mlx-community/translategemma-12b-it-4bit",
+}
 PORT = 8785
 STATIC_DIR = Path(__file__).parent
 
@@ -18,6 +22,11 @@ CONTENT_TYPES = {
 }
 
 sampler = make_sampler(temp=0.0)
+
+# Global state for current model
+current_model = None
+current_tokenizer = None
+current_model_name = None
 
 
 def build_prompt(tokenizer, src: str, tgt: str, text: str) -> str:
@@ -37,7 +46,8 @@ def build_prompt(tokenizer, src: str, tgt: str, text: str) -> str:
     return tokenizer.apply_chat_template(messages, add_generation_prompt=True)
 
 
-def translate(model, tokenizer, src: str, tgt: str, text: str) -> str:
+def translate(model, tokenizer, src: str, tgt: str, text: str) -> tuple[str, float]:
+    """Translate text and return (result, elapsed_time_seconds)"""
     # IMPORTANT: These values must match client-side validation in app.js
     MAX_TEXT_LENGTH = 5000
     SUPPORTED_LANGS = {'en', 'es'}
@@ -54,8 +64,12 @@ def translate(model, tokenizer, src: str, tgt: str, text: str) -> str:
 
     try:
         prompt = build_prompt(tokenizer, src, tgt, text)
+
+        start = time.perf_counter()
         result = generate(model, tokenizer, prompt=prompt, max_tokens=512, sampler=sampler)
-        return result
+        elapsed = time.perf_counter() - start
+
+        return result, elapsed
     except MemoryError:
         print(f"ERROR: Out of memory translating {len(text)} chars", file=sys.stderr)
         raise ValueError("Text too long, please try shorter text")
@@ -65,14 +79,20 @@ def translate(model, tokenizer, src: str, tgt: str, text: str) -> str:
         raise
 
 
-def load_model():
-    print("Loading model...", file=sys.stderr)
+def load_model(model_name: str):
+    """Load model by name (8bit or 4bit)"""
+    model_path = MODELS.get(model_name)
+    if not model_path:
+        print(f"ERROR: Unknown model '{model_name}'. Available: {list(MODELS.keys())}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Loading {model_name} model: {model_path}...", file=sys.stderr)
 
     try:
-        model, tokenizer = load(MODEL)
+        model, tokenizer = load(model_path)
     except FileNotFoundError as e:
-        print(f"ERROR: Model not found at {MODEL}", file=sys.stderr)
-        print("First run downloads ~12.5GB. Check network connection.", file=sys.stderr)
+        print(f"ERROR: Model not found at {model_path}", file=sys.stderr)
+        print(f"First run downloads model. Check network connection.", file=sys.stderr)
         print(f"Details: {e}", file=sys.stderr)
         sys.exit(1)
     except MemoryError:
@@ -91,11 +111,16 @@ def load_model():
         print("The model may be incompatible or corrupted", file=sys.stderr)
         sys.exit(1)
 
-    print("Model ready.", file=sys.stderr)
+    print(f"Model ready ({model_name}).", file=sys.stderr)
     return model, tokenizer
 
 
-def serve(model, tokenizer):
+def serve(model, tokenizer, model_name: str):
+    global current_model, current_tokenizer, current_model_name
+    current_model = model
+    current_tokenizer = tokenizer
+    current_model_name = model_name
+
     class Handler(BaseHTTPRequestHandler):
         def send_cors_headers(self):
             """Add CORS headers to allow cross-origin requests"""
@@ -105,6 +130,17 @@ def serve(model, tokenizer):
             # Serve static files
             parsed = urlparse(self.path)
             path = parsed.path
+
+            # API endpoint to get current model
+            if path == "/api/model":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_cors_headers()
+                self.end_headers()
+                import json
+                response = json.dumps({"model": current_model_name})
+                self.wfile.write(response.encode())
+                return
 
             if path == "/" or path == "/index.html":
                 file_path = STATIC_DIR / "index.html"
@@ -134,9 +170,68 @@ def serve(model, tokenizer):
                 self.end_headers()
 
         def do_POST(self):
+            global current_model, current_tokenizer, current_model_name
+
             try:
                 parsed = urlparse(self.path)
                 params = parse_qs(parsed.query)
+
+                # API endpoint to change model
+                if parsed.path == "/api/model":
+                    try:
+                        content_length = int(self.headers.get("Content-Length", 0))
+                        body = self.rfile.read(content_length).decode('utf-8')
+                        import json
+                        data = json.loads(body)
+                        new_model_name = data.get("model")
+
+                        if new_model_name not in MODELS:
+                            self.send_response(400)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.send_cors_headers()
+                            self.end_headers()
+                            error_response = json.dumps({
+                                "error": f"Invalid model: {new_model_name}",
+                                "available": list(MODELS.keys())
+                            })
+                            self.wfile.write(error_response.encode())
+                            return
+
+                        if new_model_name == current_model_name:
+                            # Model already loaded
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.send_cors_headers()
+                            self.end_headers()
+                            response = json.dumps({"model": current_model_name, "status": "already_loaded"})
+                            self.wfile.write(response.encode())
+                            return
+
+                        # Load new model
+                        print(f"\nSwitching to {new_model_name} model...", file=sys.stderr)
+                        new_model, new_tokenizer = load_model(new_model_name)
+
+                        # Update global state
+                        current_model = new_model
+                        current_tokenizer = new_tokenizer
+                        current_model_name = new_model_name
+
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_cors_headers()
+                        self.end_headers()
+                        response = json.dumps({"model": current_model_name, "status": "loaded"})
+                        self.wfile.write(response.encode())
+                        return
+
+                    except json.JSONDecodeError as e:
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_cors_headers()
+                        self.end_headers()
+                        error_response = json.dumps({"error": f"Invalid JSON: {e}"})
+                        self.wfile.write(error_response.encode())
+                        return
 
                 # Translation API
                 if "src" not in params or "tgt" not in params:
@@ -165,9 +260,9 @@ def serve(model, tokenizer):
 
                 print(f"[{src}->{tgt}] {text[:100]}{'...' if len(text) > 100 else ''}", file=sys.stderr)
 
-                # Translate with error handling
+                # Translate with error handling (use current model)
                 try:
-                    result = translate(model, tokenizer, src, tgt, text)
+                    result, elapsed = translate(current_model, current_tokenizer, src, tgt, text)
                 except ValueError as e:
                     # Expected validation errors
                     print(f"ERROR: Validation failed: {e}", file=sys.stderr)
@@ -189,10 +284,12 @@ def serve(model, tokenizer):
                     self.wfile.write(b"Internal server error during translation")
                     return
 
-                print(f"       -> {result[:100]}{'...' if len(result) > 100 else ''}", file=sys.stderr)
+                print(f"       -> {result[:100]}{'...' if len(result) > 100 else ''} ({elapsed:.2f}s)", file=sys.stderr)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("X-Translation-Time", f"{elapsed:.3f}")
                 self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Expose-Headers", "X-Translation-Time")
                 self.end_headers()
                 self.wfile.write(result.encode())
 
@@ -226,8 +323,8 @@ def serve(model, tokenizer):
     server.serve_forever()
 
 
-def repl(model, tokenizer):
-    print("Type text to translate (es->en). /swap to switch. /q to quit.\n", file=sys.stderr)
+def repl(model, tokenizer, model_name: str):
+    print(f"Type text to translate (es->en). /swap to switch. /q to quit. (Using {model_name})\n", file=sys.stderr)
     src, tgt = "es", "en"
 
     while True:
@@ -243,17 +340,27 @@ def repl(model, tokenizer):
             src, tgt = tgt, src
             continue
 
-        print(translate(model, tokenizer, src, tgt, line))
+        result, elapsed = translate(model, tokenizer, src, tgt, line)
+        print(result)
+        print(f"({elapsed:.2f}s)", file=sys.stderr)
         print()
 
 
 def main():
-    model, tokenizer = load_model()
+    # Parse model selection argument
+    model_name = "8bit"  # Default
+    for arg in sys.argv[1:]:
+        if arg in ("--4bit", "-4"):
+            model_name = "4bit"
+        elif arg in ("--8bit", "-8"):
+            model_name = "8bit"
+
+    model, tokenizer = load_model(model_name)
 
     if "--serve" in sys.argv:
-        serve(model, tokenizer)
+        serve(model, tokenizer, model_name)
     else:
-        repl(model, tokenizer)
+        repl(model, tokenizer, model_name)
 
 
 if __name__ == "__main__":

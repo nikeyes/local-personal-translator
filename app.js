@@ -68,7 +68,7 @@ function validateTranslationRequest(text, src, tgt) {
     return errors;
 }
 
-let sourceText, targetText, sourceLang, targetLang, swapBtn, copyBtn, charCount, status;
+let sourceText, targetText, sourceLang, targetLang, swapBtn, copyBtn, charCount, status, modelSelect;
 
 try {
     sourceText = getRequiredElement('sourceText');
@@ -79,6 +79,7 @@ try {
     copyBtn = getRequiredElement('copyBtn');
     charCount = getRequiredElement('charCount');
     status = getRequiredElement('status');
+    modelSelect = getRequiredElement('modelSelect');
 } catch (error) {
     logError(ERROR_IDS.INIT_DOM_ERROR, 'Initialization failed', { error: error.message });
     document.body.innerHTML = `
@@ -156,11 +157,22 @@ async function translate() {
         }
 
         const translation = await response.text();
-        const duration = ((Date.now() - translateStartTime) / 1000).toFixed(1);
+
+        // Get server-side timing if available
+        const serverTime = response.headers.get('X-Translation-Time');
+        let timeMessage;
+        if (serverTime) {
+            const serverSeconds = parseFloat(serverTime);
+            const totalSeconds = ((Date.now() - translateStartTime) / 1000).toFixed(1);
+            timeMessage = `Translated in ${serverSeconds.toFixed(2)}s (total: ${totalSeconds}s)`;
+        } else {
+            const duration = ((Date.now() - translateStartTime) / 1000).toFixed(1);
+            timeMessage = `Translated in ${duration}s`;
+        }
 
         targetText.value = translation;
         copyBtn.disabled = false;
-        showStatus(`Translated in ${duration}s`, 'success');
+        showStatus(timeMessage, 'success');
 
         // Hide success message after delay
         statusTimeout = setTimeout(hideStatus, SUCCESS_MESSAGE_DURATION_MS);
@@ -280,8 +292,67 @@ function hideStatus() {
     status.classList.remove('visible');
 }
 
+// Model selection
+modelSelect.addEventListener('change', async () => {
+    const newModel = modelSelect.value;
+    const previousModel = modelSelect.value;
+
+    try {
+        showStatus('Loading model...', 'info');
+        modelSelect.disabled = true;
+
+        const response = await fetch(`${API_BASE_URL}/api/model`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ model: newModel })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to load model: HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        if (result.status === 'loaded') {
+            showStatus(`Switched to ${newModel} model`, 'success');
+            // Re-translate if there's text
+            if (sourceText.value.trim()) {
+                setTimeout(translate, 500);
+            } else {
+                setTimeout(hideStatus, 2000);
+            }
+        } else if (result.status === 'already_loaded') {
+            hideStatus();
+        }
+
+        modelSelect.disabled = false;
+
+    } catch (error) {
+        console.error('Failed to change model:', error);
+        showStatus(`Error loading model: ${error.message}`, 'error');
+        modelSelect.value = previousModel; // Revert selection
+        modelSelect.disabled = false;
+    }
+});
+
+// Fetch current model on load
+async function loadCurrentModel() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/model`);
+        if (response.ok) {
+            const data = await response.json();
+            modelSelect.value = data.model;
+        }
+    } catch (error) {
+        console.error('Failed to fetch current model:', error);
+    }
+}
+
 // Initialize
 copyBtn.disabled = true;
+loadCurrentModel();
 
 // Check URL parameters (from shortcuts - text is base64 encoded)
 const urlParams = new URLSearchParams(window.location.search);
