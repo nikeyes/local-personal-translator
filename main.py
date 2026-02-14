@@ -1,9 +1,11 @@
+import gc
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import mlx.core as mx
 from mlx_lm import load, generate
 from mlx_lm.sample_utils import make_sampler
 
@@ -207,11 +209,14 @@ def serve(model, tokenizer, model_name: str):
                             self.wfile.write(response.encode())
                             return
 
-                        # Load new model
+                        # Free current model before loading new one
                         print(f"\nSwitching to {new_model_name} model...", file=sys.stderr)
-                        new_model, new_tokenizer = load_model(new_model_name)
+                        current_model = None
+                        current_tokenizer = None
+                        gc.collect()
+                        mx.metal.clear_cache()
 
-                        # Update global state
+                        new_model, new_tokenizer = load_model(new_model_name)
                         current_model = new_model
                         current_tokenizer = new_tokenizer
                         current_model_name = new_model_name

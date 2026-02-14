@@ -5,10 +5,21 @@ Local ES↔EN translator using [TranslateGemma 12B](https://huggingface.co/mlx-c
 ## Setup
 
 ```bash
+make install
+# or
 uv sync
 ```
 
 The first run downloads the model. Subsequent runs start in seconds.
+
+## Quick Start with Make
+
+```bash
+make help              # Show all available commands
+make serve             # Start web server with 8-bit model
+make serve-4bit        # Start web server with 4-bit model
+make interactive       # Start interactive mode
+```
 
 ## Model Selection
 
