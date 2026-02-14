@@ -1,0 +1,9 @@
+[project]
+name = "personal-translator"
+version = "0.1.0"
+description = "ES↔EN translator using TranslateGemma on Apple Silicon"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mlx-lm>=0.30.7",
+]
