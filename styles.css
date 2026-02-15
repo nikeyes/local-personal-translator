@@ -129,6 +129,62 @@ header h1 {
     padding: 16px 20px;
     border-bottom: 1px solid #e5e7eb;
     background: #f9fafb;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.temperature-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+
+.temperature-control label {
+    display: flex;
+    align-items: center;
+    cursor: help;
+}
+
+.temperature-control svg {
+    opacity: 0.7;
+}
+
+.temperature-control input[type="range"] {
+    width: 80px;
+    height: 4px;
+    border-radius: 2px;
+    background: #e5e7eb;
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.temperature-control input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #667eea;
+    cursor: pointer;
+}
+
+.temperature-control input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #667eea;
+    cursor: pointer;
+    border: none;
+}
+
+#temperatureValue {
+    font-weight: 500;
+    min-width: 28px;
+    text-align: right;
 }
 
 .lang-selector {

@@ -114,7 +114,9 @@ def parse_alternatives_response(response: str, original_word: str) -> list[str]:
     return alternatives
 
 
-def get_word_alternatives(model, tokenizer, text: str, word: str, language: str) -> list[str]:
+def get_word_alternatives(
+    model, tokenizer, text: str, word: str, language: str, temperature: float = 0.3
+) -> tuple[list[str], float]:
     """
     Get contextual word alternatives using translategemma.
 
@@ -127,24 +129,28 @@ def get_word_alternatives(model, tokenizer, text: str, word: str, language: str)
         text: Full sentence containing the word
         word: Target word to find alternatives for
         language: Language code ('en' or 'es')
+        temperature: Sampling temperature (0.0=conservative, 1.0=creative)
 
     Returns:
-        ["fast", "rapid", "swift", ...]
+        (alternatives, elapsed_time_seconds)
+        alternatives: ["fast", "rapid", "swift", ...]
         Up to 5 alternatives
     """
     # Build prompt asking for synonyms
     prompt_text = f"Provide 5 synonyms for '{word}' in this context: {text}"
     prompt = build_prompt(tokenizer, language, language, prompt_text)
 
-    # Generate with low temperature for consistency
-    sampler = make_sampler(temp=0.3)
-    result = generate(model, tokenizer, prompt=prompt, max_tokens=256, sampler=sampler)
+    # Generate with specified temperature
+    alternatives_sampler = make_sampler(temp=temperature)
+    start = time.perf_counter()
+    result = generate(model, tokenizer, prompt=prompt, max_tokens=256, sampler=alternatives_sampler)
+    elapsed = time.perf_counter() - start
 
     # Parse response to extract alternatives
     # Response format: "Here are 5 synonyms...\n\n1. fast\n2. rapid\n3. swift..."
     alternatives = parse_alternatives_response(result, word)
 
-    return alternatives
+    return alternatives, elapsed
 
 
 def load_model(model_name: str):
@@ -317,6 +323,7 @@ def serve(model, tokenizer, model_name: str):
                         text = data.get("text")
                         word = data.get("word")
                         language = data.get("language")  # 'en' or 'es'
+                        temperature = data.get("temperature", 0.3)  # Optional, default 0.3
 
                         if not text or not word or not language:
                             self.send_response(400)
@@ -341,15 +348,39 @@ def serve(model, tokenizer, model_name: str):
                             self.wfile.write(error_response.encode())
                             return
 
+                        # Validate temperature
+                        try:
+                            temperature = float(temperature)
+                            if not 0.0 <= temperature <= 1.0:
+                                raise ValueError("Temperature must be between 0.0 and 1.0")
+                        except (ValueError, TypeError) as e:
+                            self.send_response(400)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.send_cors_headers()
+                            self.end_headers()
+                            error_response = json.dumps({
+                                "error": f"Invalid temperature: {e}"
+                            })
+                            self.wfile.write(error_response.encode())
+                            return
+
+                        # Log request
+                        print(f"[alternatives:{language}] '{word}' in: {text[:100]}{'...' if len(text) > 100 else ''} (temp={temperature})", file=sys.stderr)
+
                         # Get alternatives
                         try:
-                            alternatives = get_word_alternatives(
+                            alternatives, elapsed = get_word_alternatives(
                                 current_model,
                                 current_tokenizer,
                                 text,
                                 word,
-                                language
+                                language,
+                                temperature
                             )
+
+                            # Log result
+                            alternatives_str = ", ".join(alternatives) if alternatives else "(none)"
+                            print(f"       -> {alternatives_str} ({elapsed:.2f}s)", file=sys.stderr)
 
                             self.send_response(200)
                             self.send_header("Content-Type", "application/json; charset=utf-8")

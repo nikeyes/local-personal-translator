@@ -73,7 +73,7 @@ function validateTranslationRequest(text, src, tgt, mode) {
 }
 
 let sourceText, targetText, sourceLang, targetLang, swapBtn, swapBtnContainer, copyBtn, charCount, status, modelSelect;
-let translateTab, improveTab, outputHeader;
+let translateTab, improveTab, outputHeader, temperatureSlider, temperatureValue;
 
 try {
     sourceText = getRequiredElement('sourceText');
@@ -89,6 +89,8 @@ try {
     translateTab = getRequiredElement('translateTab');
     improveTab = getRequiredElement('improveTab');
     outputHeader = getRequiredElement('outputHeader');
+    temperatureSlider = getRequiredElement('temperatureSlider');
+    temperatureValue = getRequiredElement('temperatureValue');
 } catch (error) {
     logError(ERROR_IDS.INIT_DOM_ERROR, 'Initialization failed', { error: error.message });
     document.body.innerHTML = `
@@ -410,6 +412,11 @@ function setMode(mode) {
 translateTab.addEventListener('click', () => setMode(MODE_TRANSLATE));
 improveTab.addEventListener('click', () => setMode(MODE_IMPROVE));
 
+// Temperature slider
+temperatureSlider.addEventListener('input', () => {
+    temperatureValue.textContent = temperatureSlider.value;
+});
+
 // Word alternatives functionality
 
 function getWordAtPosition(text, position) {
@@ -480,12 +487,14 @@ async function handleTargetTextClick(event) {
 }
 
 async function fetchAlternatives(text, word, language) {
+    const temperature = parseFloat(temperatureSlider.value);
+
     const response = await fetch(`${API_BASE_URL}/api/alternatives`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ text, word, language })
+        body: JSON.stringify({ text, word, language, temperature })
     });
 
     if (!response.ok) {
