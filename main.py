@@ -83,6 +83,70 @@ def translate(model, tokenizer, src: str, tgt: str, text: str) -> tuple[str, flo
         raise
 
 
+def parse_alternatives_response(response: str, original_word: str) -> list[str]:
+    """
+    Parse translategemma response to extract synonym list.
+
+    Expected formats:
+    - "1. fast\n2. rapid"
+    - "1.  Rapid\n2.  Swift"
+    - Numbered lists with or without extra text
+
+    Returns list of words
+    """
+    import re
+
+    alternatives = []
+    # Match patterns like "1. word" or "1.  Word" or "- word"
+    pattern = r'^\s*(?:\d+\.?|-)\s+([a-zA-ZáéíóúñÁÉÍÓÚÑ]+)'
+
+    for line in response.split('\n'):
+        match = re.match(pattern, line.strip())
+        if match:
+            alt_word = match.group(1).strip().lower()
+            # Skip if same as original
+            if alt_word != original_word.lower():
+                alternatives.append(alt_word)
+
+                if len(alternatives) >= 5:
+                    break
+
+    return alternatives
+
+
+def get_word_alternatives(model, tokenizer, text: str, word: str, language: str) -> list[str]:
+    """
+    Get contextual word alternatives using translategemma.
+
+    Uses prompt engineering: asks model for list of synonyms.
+    Parses response to extract alternatives.
+
+    Args:
+        model: Current translategemma model
+        tokenizer: Current tokenizer
+        text: Full sentence containing the word
+        word: Target word to find alternatives for
+        language: Language code ('en' or 'es')
+
+    Returns:
+        ["fast", "rapid", "swift", ...]
+        Up to 5 alternatives
+    """
+    # Build prompt asking for synonyms
+    prompt_text = f"Provide 5 synonyms for '{word}' in this context: {text}"
+    prompt = build_prompt(tokenizer, language, language, prompt_text)
+
+    # Generate with low temperature for consistency
+    sampler = make_sampler(temp=0.3)
+    result = generate(model, tokenizer, prompt=prompt, max_tokens=256, sampler=sampler)
+
+    # Parse response to extract alternatives
+    # Response format: "Here are 5 synonyms...\n\n1. fast\n2. rapid\n3. swift..."
+    alternatives = parse_alternatives_response(result, word)
+
+    return alternatives
+
+
 def load_model(model_name: str):
     """Load model by name (8bit or 4bit)"""
     model_path = MODELS.get(model_name)
@@ -230,6 +294,82 @@ def serve(model, tokenizer, model_name: str):
                         response = json.dumps({"model": current_model_name, "status": "loaded"})
                         self.wfile.write(response.encode())
                         return
+
+                    except json.JSONDecodeError as e:
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_cors_headers()
+                        self.end_headers()
+                        error_response = json.dumps({"error": f"Invalid JSON: {e}"})
+                        self.wfile.write(error_response.encode())
+                        return
+
+                # Alternatives API endpoint
+                if parsed.path == "/api/alternatives":
+                    import json
+
+                    try:
+                        content_length = int(self.headers.get("Content-Length", 0))
+                        body = self.rfile.read(content_length).decode('utf-8')
+                        data = json.loads(body)
+
+                        # Validate required fields
+                        text = data.get("text")
+                        word = data.get("word")
+                        language = data.get("language")  # 'en' or 'es'
+
+                        if not text or not word or not language:
+                            self.send_response(400)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.send_cors_headers()
+                            self.end_headers()
+                            error_response = json.dumps({
+                                "error": "Missing required fields: text, word, language"
+                            })
+                            self.wfile.write(error_response.encode())
+                            return
+
+                        # Validate language
+                        if language not in {'en', 'es'}:
+                            self.send_response(400)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.send_cors_headers()
+                            self.end_headers()
+                            error_response = json.dumps({
+                                "error": f"Unsupported language: {language}"
+                            })
+                            self.wfile.write(error_response.encode())
+                            return
+
+                        # Get alternatives
+                        try:
+                            alternatives = get_word_alternatives(
+                                current_model,
+                                current_tokenizer,
+                                text,
+                                word,
+                                language
+                            )
+
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.send_cors_headers()
+                            self.end_headers()
+                            response = json.dumps({"alternatives": alternatives})
+                            self.wfile.write(response.encode())
+                            return
+
+                        except Exception as e:
+                            print(f"ERROR: Failed to get alternatives: {type(e).__name__}: {e}", file=sys.stderr)
+                            import traceback
+                            traceback.print_exc(file=sys.stderr)
+                            self.send_response(500)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.send_cors_headers()
+                            self.end_headers()
+                            error_response = json.dumps({"error": "Internal server error"})
+                            self.wfile.write(error_response.encode())
+                            return
 
                     except json.JSONDecodeError as e:
                         self.send_response(400)

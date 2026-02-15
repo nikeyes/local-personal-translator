@@ -314,3 +314,105 @@ header h1 {
         font-size: 2rem;
     }
 }
+
+/* Word Alternatives Popup */
+.alternatives-popup {
+    position: fixed;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    padding: 0;
+    z-index: 10000;
+    min-width: 220px;
+    max-width: 280px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.alternatives-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 13px;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.alternatives-header .word {
+    color: #111827;
+    font-weight: 600;
+}
+
+.alternatives-list {
+    padding: 4px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.alternative-item {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.15s ease;
+    text-align: left;
+}
+
+.alternative-item:hover {
+    background-color: #f3f4f6;
+}
+
+.alternative-word {
+    color: #111827;
+    font-weight: 500;
+}
+
+.alternatives-loading,
+.alternatives-empty,
+.alternatives-error {
+    padding: 20px;
+    text-align: center;
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.alternatives-error {
+    color: #dc2626;
+}
+
+.alternatives-loading::after {
+    content: '';
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    margin-left: 8px;
+    border: 2px solid #e5e7eb;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Scrollbar styling for alternatives list */
+.alternatives-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.alternatives-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.alternatives-list::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+.alternatives-list::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}

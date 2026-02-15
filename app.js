@@ -13,7 +13,9 @@ const ERROR_IDS = {
     TRANSLATION_SERVER_ERROR: 'TRANS_SRV_002',
     TRANSLATION_VALIDATION_ERROR: 'TRANS_VAL_003',
     CLIPBOARD_ERROR: 'CLIP_ERR_001',
-    URL_DECODE_ERROR: 'URL_DEC_001'
+    URL_DECODE_ERROR: 'URL_DEC_001',
+    ALTERNATIVES_FETCH_ERROR: 'ALT_FETCH_001',
+    ALTERNATIVES_PARSE_ERROR: 'ALT_PARSE_002'
 };
 
 // Helper functions
@@ -105,6 +107,12 @@ let translateStartTime = null;
 let currentRequestId = 0;
 let statusTimeout = null;
 let currentMode = MODE_TRANSLATE;
+
+// Alternatives popup state
+let alternativesPopup = null;
+let currentWord = null;
+let currentWordStart = null;
+let currentWordEnd = null;
 
 // Update character count
 sourceText.addEventListener('input', () => {
@@ -402,10 +410,189 @@ function setMode(mode) {
 translateTab.addEventListener('click', () => setMode(MODE_TRANSLATE));
 improveTab.addEventListener('click', () => setMode(MODE_IMPROVE));
 
+// Word alternatives functionality
+
+function getWordAtPosition(text, position) {
+    if (!text || position < 0 || position >= text.length) return null;
+
+    let start = position;
+    let end = position;
+
+    // Expand to word boundaries (alphanumeric + accented chars)
+    const wordChar = /[a-zA-ZáéíóúñÁÉÍÓÚÑ]/;
+
+    while (start > 0 && wordChar.test(text[start - 1])) {
+        start--;
+    }
+
+    while (end < text.length && wordChar.test(text[end])) {
+        end++;
+    }
+
+    const word = text.substring(start, end);
+
+    // Validate: must be alphabetic, min 2 chars
+    if (!word || word.length < 2 || !/^[a-zA-ZáéíóúñÁÉÍÓÚÑ]+$/.test(word)) {
+        return null;
+    }
+
+    return { word, start, end };
+}
+
+async function handleTargetTextClick(event) {
+    const textarea = event.target;
+    const clickPosition = textarea.selectionStart;
+    const text = textarea.value;
+
+    const wordInfo = getWordAtPosition(text, clickPosition);
+    if (!wordInfo) {
+        hideAlternativesPopup();
+        return;
+    }
+
+    currentWord = wordInfo.word;
+    currentWordStart = wordInfo.start;
+    currentWordEnd = wordInfo.end;
+
+    // Show loading popup immediately
+    showAlternativesPopup(event.clientX, event.clientY, 'loading');
+
+    try {
+        // Get current language (target language)
+        const language = targetLang.value;
+
+        const alternatives = await fetchAlternatives(text, wordInfo.word, language);
+
+        if (alternatives.length === 0) {
+            showAlternativesPopup(event.clientX, event.clientY, 'empty');
+            setTimeout(hideAlternativesPopup, 2000);
+        } else {
+            showAlternativesPopup(event.clientX, event.clientY, 'loaded', alternatives);
+        }
+    } catch (error) {
+        logError(ERROR_IDS.ALTERNATIVES_FETCH_ERROR, 'Failed to fetch alternatives', {
+            error: error.message,
+            word: wordInfo.word
+        });
+        showAlternativesPopup(event.clientX, event.clientY, 'error');
+        setTimeout(hideAlternativesPopup, 2000);
+    }
+}
+
+async function fetchAlternatives(text, word, language) {
+    const response = await fetch(`${API_BASE_URL}/api/alternatives`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text, word, language })
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.alternatives || [];
+}
+
+function showAlternativesPopup(x, y, state, alternatives = []) {
+    hideAlternativesPopup(); // Close any existing popup
+
+    const popup = document.createElement('div');
+    popup.id = 'alternativesPopup';
+    popup.className = 'alternatives-popup';
+
+    // Position popup near click, with boundary checks
+    let left = x + 10;
+    let top = y + 10;
+    const popupWidth = 250;
+    const popupHeight = 200;
+
+    if (left + popupWidth > window.innerWidth) {
+        left = x - popupWidth - 10;
+    }
+    if (top + popupHeight > window.innerHeight) {
+        top = y - popupHeight - 10;
+    }
+
+    popup.style.left = `${left}px`;
+    popup.style.top = `${top}px`;
+
+    // Set content based on state
+    if (state === 'loading') {
+        popup.innerHTML = '<div class="alternatives-loading">Loading alternatives...</div>';
+    } else if (state === 'loaded') {
+        const header = `<div class="alternatives-header">Alternatives for "<span class="word">${currentWord}</span>"</div>`;
+        const items = alternatives.map(alt => `
+            <button class="alternative-item" data-word="${alt}">
+                <span class="alternative-word">${alt}</span>
+            </button>
+        `).join('');
+        popup.innerHTML = header + `<div class="alternatives-list">${items}</div>`;
+
+        // Add click handlers for each alternative
+        popup.querySelectorAll('.alternative-item').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                replaceWord(btn.dataset.word);
+            });
+        });
+    } else if (state === 'empty') {
+        popup.innerHTML = '<div class="alternatives-empty">No alternatives found</div>';
+    } else if (state === 'error') {
+        popup.innerHTML = '<div class="alternatives-error">Error loading alternatives</div>';
+    }
+
+    document.body.appendChild(popup);
+    alternativesPopup = popup;
+
+    // Close on click outside or ESC
+    setTimeout(() => {
+        document.addEventListener('click', handleDocumentClick);
+    }, 100);
+}
+
+function hideAlternativesPopup() {
+    if (alternativesPopup) {
+        alternativesPopup.remove();
+        alternativesPopup = null;
+    }
+    document.removeEventListener('click', handleDocumentClick);
+}
+
+function handleDocumentClick(event) {
+    if (alternativesPopup && !alternativesPopup.contains(event.target)) {
+        hideAlternativesPopup();
+    }
+}
+
+function handleEscKey(event) {
+    if (event.key === 'Escape' && alternativesPopup) {
+        hideAlternativesPopup();
+    }
+}
+
+function replaceWord(alternative) {
+    const text = targetText.value;
+    const before = text.substring(0, currentWordStart);
+    const after = text.substring(currentWordEnd);
+
+    targetText.value = before + alternative + after;
+    hideAlternativesPopup();
+
+    showStatus(`Replaced "${currentWord}" with "${alternative}"`, 'success');
+    setTimeout(hideStatus, 2000);
+}
+
 // Initialize
 copyBtn.disabled = true;
 loadCurrentModel();
 setMode(MODE_TRANSLATE);
+
+// Add event listeners for alternatives
+targetText.addEventListener('click', handleTargetTextClick);
+document.addEventListener('keydown', handleEscKey);
 
 // Check URL parameters (from shortcuts - text is base64 encoded)
 const urlParams = new URLSearchParams(window.location.search);
